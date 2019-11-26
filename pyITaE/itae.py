@@ -11,6 +11,18 @@ class ITaE:
     '''
     This class maintains all the relevant information that is processed by the ITaE
     algorithm.
+
+    It takes:
+        - The ingredients for the map creation process using MAP_Elites from pymelites.
+            - random_solution
+            - random_selection
+            - random_variation
+            - simulate
+    It creates empty versions of
+        - The partition that describes the map.
+        - a map_elites attribute that stores the MAP_Elites object when
+          creating the map from scratch.
+        - cells and solutions, which essentially constitute the map.
     '''
     def __init__(self, random_solution, random_selection, random_variation, simulate):
         self.random_solution = random_solution
@@ -19,7 +31,6 @@ class ITaE:
         self.simulate = simulate
         self.partition = None
         self.map_elites = None
-        self.map = None
         self.cells = None
         self.solutions = None
 
@@ -42,6 +53,8 @@ class ITaE:
         )
 
         # Create the cells
+        # TODO: if I were to add amount_of_elites kwarg, this
+        # needs to change.
         self.map_elites.create_cells(partition)
 
         # Compute the map
@@ -68,5 +81,6 @@ class ITaE:
         self.cells = {}
         self.solutions = {}
         for cell in doc.values():
-            self.cells[cell['centroid']] = Cell.from_dict(cell)
-            self.solutions[cell['centroid']] = cell['solution']
+            centroid = tuple(cell['centroid'])
+            self.cells[centroid] = Cell.from_dict(cell)
+            self.solutions[centroid] = cell['solution']
