@@ -133,6 +133,7 @@ class ITaE:
             # TODO: fix this.
 
             return np.argmax(self.real_map + kappa*self.variance)
+
         if init:
             best_performance = -np.Inf
             best_centroid = None
