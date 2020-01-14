@@ -13,9 +13,10 @@ def load_map(path):
     perf_map, behaviors_map, controllers = {}, {}, {}
     for doc in docs.values():
         centroid = tuple(doc["centroid"])
-        perf_map[centroid] = doc["performance"]
-        behaviors_map[centroid] = doc["features"]
-        controllers[centroid] = doc["solution"]
+        if doc["performance"] is not None:
+            perf_map[centroid] = doc["performance"]
+            behaviors_map[centroid] = doc["features"]
+            controllers[centroid] = doc["solution"]
 
     return perf_map, behaviors_map, controllers
 
@@ -28,62 +29,43 @@ def check_stopping_condition(performance, recorded_perfs):
 def get_next_centroid(real_map):
     current_centroid, current_max = None, -np.Inf
     for centroid, performance in real_map.items():
-        if performance is not None and performance > current_max:
+        if performance > current_max:
             current_centroid = centroid
+            current_max = performance
+            print(f"current centroid: {current_centroid}, performance: {performance}")
 
+    print(f"Next centroid: {current_centroid}.")
     return current_centroid
 
 def update_real_map(model, perf_map, behaviors_map):
-    # centroids = []
-    # behaviors = []
-    # map_performances = []
-    # means, variances = [], []
-    # for centroid, behavior in behaviors_map.items():
-    #     centroids.append(centroid)
-    #     behaviors.append(behavior)
-    #     map_performances.append(perf_map[centroid])
-
-    #     mean, variance = model.predict(np.array([[behavior]]))[0]
-    #     print(f"mean: {mean}")
-    #     print(f"variance: {variance}")
-    #     means.append(mean)
-    #     variances.append(variance)
-    
-    # real_values = np.array(means) + np.array(map_performances)
-    # real_map = {
-    #     centroid: real_values[i] for i, centroid in enumerate(centroids)
-    # }
-    # return real_map
-
     centroids = []
     behaviors = []
     map_performances = []
     for centroid, behavior in behaviors_map.items():
-        if behavior is not None:
-            centroids.append(centroid)
-            behaviors.append(behavior)
-            performance = perf_map[centroid]
-            assert performance is not None
-            map_performances.append(perf_map[centroid])
+        centroids.append(centroid)
+        behaviors.append(behavior)
+        performance = perf_map[centroid]
+        assert performance is not None
+        map_performances.append(perf_map[centroid])
 
     # print(f"behaviors: {behaviors}")
     # _ = input("Press enter to continue. Debugging behaviors.")
     behaviors = np.array(behaviors)
-    print(f"behaviors: {behaviors}, shape: {behaviors.shape}")
-    _ = input("Press enter to continue. Debugging behaviors.")
+    # print(f"behaviors: {behaviors}, shape: {behaviors.shape}")
+    # _ = input("Press enter to continue. Debugging behaviors.")
 
     mean, variance = model.predict(behaviors)
-    print(f"mean: {mean}")
-    _ = input("Press enter to continue. Debugging mean.")
+    # print(f"mean: {mean}")
+    # _ = input("Press enter to continue. Debugging mean.")
 
     real_values = mean.T[0] + np.array(map_performances)
-    print(f"real values: {real_values}")
-    _ = input("Press enter to continue. Debugging real_values.")
+    # print(f"real values: {real_values}")
+    # _ = input("Press enter to continue. Debugging real_values.")
     real_map = {
         centroid: real_values[i] for i, centroid in enumerate(centroids)
     }
-    print(f"real map: {real_map}")
-    _ = input("Press enter to continue. Debugging real_map.")
+    # print(f"real map: {real_map}")
+    # _ = input("Press enter to continue. Debugging real_map.")
     return real_map
 
 
@@ -92,6 +74,8 @@ def itae(path, deploy):
     The algorithm itself. Takes the path to the map outputted by pymelites
     and the deploy function, which should take a controller and return
     performance and behavior.
+
+    TODO: test and visualize this with the rastrigin.
     """
     perf_map, behaviors_map, controllers = load_map(path)
 
@@ -130,7 +114,7 @@ def itae(path, deploy):
         print(f"X: {X}")
         m = GPy.models.GPRegression(
             np.array(X),
-            np.array([Y]),
+            np.array([Y]).T,
             kernel
         )
 
@@ -139,7 +123,7 @@ def itae(path, deploy):
 
         # But I need to find a consistent way of adding them here.
         real_map = update_real_map(m, perf_map, behaviors_map)
-        print(f"New real map: {real_map}")
+        print(f"New real map: {real_map}.")
 
         next_centroid = get_next_centroid(real_map)
         next_controller = controllers[next_centroid]
