@@ -19,15 +19,6 @@ def load_map(path):
 
     return perf_map, behaviors_map, controllers
 
-def deploy(controller):
-    """
-    This is the core. Here, the agent should be presented with a game, the rollouts should be
-    recorded, and from there the optimization should take place.
-
-    This one should be way more general, but for now I'll handcode the deploy procedure.
-    """
-    return 0, 0
-
 def check_stopping_condition(performance, recorded_perfs):
     """
     Check the paper and their original implementation.
@@ -63,9 +54,11 @@ def update_real_map(model, perf_map, behaviors_map):
     return real_map
 
 
-def itae(path):
+def itae(path, deploy):
     """
-    The algorithm itself.
+    The algorithm itself. Takes the path to the map outputted by pymelites
+    and the deploy function, which should take a controller and return
+    performance and behavior.
     """
     perf_map, behaviors_map, controllers = load_map(path)
 
