@@ -12,7 +12,7 @@ def load_map(path):
 
     perf_map, behaviors_map, controllers = {}, {}, {}
     for doc in docs.values():
-        centroid = doc["centroid"]
+        centroid = tuple(doc["centroid"])
         perf_map[centroid] = doc["performance"]
         behaviors_map[centroid] = doc["features"]
         controllers[centroid] = doc["solution"]
@@ -34,23 +34,56 @@ def get_next_centroid(real_map):
     return current_centroid
 
 def update_real_map(model, perf_map, behaviors_map):
+    # centroids = []
+    # behaviors = []
+    # map_performances = []
+    # means, variances = [], []
+    # for centroid, behavior in behaviors_map.items():
+    #     centroids.append(centroid)
+    #     behaviors.append(behavior)
+    #     map_performances.append(perf_map[centroid])
+
+    #     mean, variance = model.predict(np.array([[behavior]]))[0]
+    #     print(f"mean: {mean}")
+    #     print(f"variance: {variance}")
+    #     means.append(mean)
+    #     variances.append(variance)
+    
+    # real_values = np.array(means) + np.array(map_performances)
+    # real_map = {
+    #     centroid: real_values[i] for i, centroid in enumerate(centroids)
+    # }
+    # return real_map
+
     centroids = []
     behaviors = []
     map_performances = []
-    means, variances = [], []
     for centroid, behavior in behaviors_map.items():
-        centroids.append(centroid)
-        behaviors.append(behavior)
-        map_performances.append(perf_map[centroid])
+        if behavior is not None:
+            centroids.append(centroid)
+            behaviors.append(behavior)
+            performance = perf_map[centroid]
+            assert performance is not None
+            map_performances.append(perf_map[centroid])
 
-        mean, variance = model.predict(np.array([behavior]))[0]
-        means.append(mean)
-        variances.append(variance)
-    
-    real_values = np.array(means) + np.array(map_performances)
+    # print(f"behaviors: {behaviors}")
+    # _ = input("Press enter to continue. Debugging behaviors.")
+    behaviors = np.array(behaviors)
+    print(f"behaviors: {behaviors}, shape: {behaviors.shape}")
+    _ = input("Press enter to continue. Debugging behaviors.")
+
+    mean, variance = model.predict(behaviors)
+    print(f"mean: {mean}")
+    _ = input("Press enter to continue. Debugging mean.")
+
+    real_values = mean.T[0] + np.array(map_performances)
+    print(f"real values: {real_values}")
+    _ = input("Press enter to continue. Debugging real_values.")
     real_map = {
         centroid: real_values[i] for i, centroid in enumerate(centroids)
     }
+    print(f"real map: {real_map}")
+    _ = input("Press enter to continue. Debugging real_map.")
     return real_map
 
 
@@ -74,7 +107,10 @@ def itae(path, deploy):
     recorded_perfs = []
 
     while True:
+        _ = input("Press enter to continue.")
+        print(f"Deploying the controller {next_controller}")
         performance, behavior = deploy(next_controller)
+        print(f"Performance of that controller: {performance}")
         recorded_perfs.append(performance)
 
         stopping_condition = check_stopping_condition(performance, recorded_perfs)
@@ -82,18 +118,28 @@ def itae(path, deploy):
             break
 
         dimension = len(behavior)
-        kernel = GPy.kern.Matern52(dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension,np.sqrt(0.1))
+        print(dimension)
+        print(f"dimension")
+        _ = input("Press enter to continue.")
+
+        kernel = GPy.kern.Matern52(input_dim=dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension, np.sqrt(0.1))
 
         X.append(behavior)
-        Y.append(performance - perf_map[next_index])
+        Y.append(performance - perf_map[next_centroid])
 
-        m = GPy.models.GPRegression(X, Y, kernel)
+        print(f"X: {X}")
+        m = GPy.models.GPRegression(
+            np.array(X),
+            np.array([Y]),
+            kernel
+        )
 
         # If this is the only use of behaviors_map, then it should just be a np.array.
-        mean, variance = m.predict(behaviors_map)
+        # mean, variance = m.predict(behaviors_map)
 
         # But I need to find a consistent way of adding them here.
         real_map = update_real_map(m, perf_map, behaviors_map)
+        print(f"New real map: {real_map}")
 
         next_centroid = get_next_centroid(real_map)
         next_controller = controllers[next_centroid]
