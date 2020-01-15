@@ -1,5 +1,9 @@
 .vscode/
 
+# Outputs
+pyITaE/experiments/*.json
+pyITaE/experiments/*.jpg
+
 # OSX stuff
 .DS_Store
 

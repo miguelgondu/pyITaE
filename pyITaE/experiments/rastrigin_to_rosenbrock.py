@@ -7,8 +7,10 @@ the rosenbrock 6D function.
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+import glob
 
 from pyITaE.itae_take_2 import itae
+from pyITaE.visualize_updates import plot_updates
 from pymelites.map_elites import MAP_Elites
 
 # Computing the archive using the rastrigin function.
@@ -66,8 +68,14 @@ map_elites.create_cells(
 def deploy(x):
     performance = 0
     for i in range(len(x) - 1):
-        performance += 100*((x[i+1] - x[i] ** 2) ** 2 + (1 - x[i]) ** 2)
+        performance += 10*((x[i+1] - x[i] ** 2) ** 2 + (1 - x[i]) ** 2)
     
     return -performance, x[:2]
 
-itae("./generation_02499.json", deploy)
+try:
+    itae("./generation_02499.json", deploy)
+except KeyboardInterrupt:
+    pass
+
+limits = (-2*np.pi, 2*np.pi)
+plot_updates(glob.glob("./update_*.json"), limits, limits)

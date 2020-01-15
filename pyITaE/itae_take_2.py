@@ -1,6 +1,16 @@
 import json
 import numpy as np
 import GPy
+from collections import defaultdict
+
+def to_json_writable(dict_):
+    """
+    TODO: embetter this function
+    """
+    new_dict = {
+        str(k): v for k, v in dict_.items()
+    }
+    return new_dict
 
 def load_map(path):
     """
@@ -20,11 +30,16 @@ def load_map(path):
 
     return perf_map, behaviors_map, controllers
 
-def check_stopping_condition(performance, recorded_perfs):
+def check_stopping_condition(real_map, recorded_perfs, alpha):
     """
-    Check the paper and their original implementation.
+    Returns whether the recorded performances we have seen
+    are bigger than a bound (alpha times the best new estimate
+    of the real performance).
     """
-    return False
+    bound = alpha*max(real_map.values())
+    max_perf = max(recorded_perfs)
+    print(f"max recorded performance: {max_perf}, bound: {bound}")
+    return max(recorded_perfs) > bound
 
 def get_next_centroid(real_map):
     current_centroid, current_max = None, -np.Inf
@@ -69,7 +84,7 @@ def update_real_map(model, perf_map, behaviors_map):
     return real_map
 
 
-def itae(path, deploy):
+def itae(path, deploy, max_iterations=100):
     """
     The algorithm itself. Takes the path to the map outputted by pymelites
     and the deploy function, which should take a controller and return
@@ -77,29 +92,43 @@ def itae(path, deploy):
 
     TODO: test and visualize this with the rastrigin.
     """
-    perf_map, behaviors_map, controllers = load_map(path)
 
+    # Preamble: map loading and defining constants
+    perf_map, behaviors_map, controllers = load_map(path)
     real_map = perf_map.copy()
 
-    # I could change this to a "get next index" function.
-    # next_index = np.argmax(real_map)
-    next_centroid = get_next_centroid(real_map)
+    tested_centroids = defaultdict(int)
 
-    next_controller = controllers[next_centroid]
     X = []
     Y = []
     recorded_perfs = []
 
+    alpha = 0.8
+
+    best_controller, best_performance = None, -np.Inf
+
+    # The main loop
+    updates = 0
     while True:
-        _ = input("Press enter to continue.")
+        # Get the next controller to test, check if it
+        # has been tested in the past.
+        next_centroid = get_next_centroid(real_map)
+        next_controller = controllers[next_centroid]
+        if next_centroid in tested_centroids:
+            # What do?
+            # I could retry it with some probability.
+            pass
+
         print(f"Deploying the controller {next_controller}")
         performance, behavior = deploy(next_controller)
-        print(f"Performance of that controller: {performance}")
         recorded_perfs.append(performance)
-
-        stopping_condition = check_stopping_condition(performance, recorded_perfs)
-        if stopping_condition:
-            break
+        if best_performance < performance:
+            best_performance = performance
+            best_controller = next_controller
+            print(f"New best (real) performance found: {performance}")
+            print(f"Associated controller: {best_controller}")
+        tested_controllers[next_centroid] += 1
+        print(f"Performance of that controller: {performance}")
 
         dimension = len(behavior)
         print(dimension)
@@ -111,7 +140,7 @@ def itae(path, deploy):
         X.append(behavior)
         Y.append(performance - perf_map[next_centroid])
 
-        print(f"X: {X}")
+        print(f"X: {X}, Y: {Y}")
         m = GPy.models.GPRegression(
             np.array(X),
             np.array([Y]).T,
@@ -124,6 +153,23 @@ def itae(path, deploy):
         # But I need to find a consistent way of adding them here.
         real_map = update_real_map(m, perf_map, behaviors_map)
         print(f"New real map: {real_map}.")
+        update += 1
 
-        next_centroid = get_next_centroid(real_map)
-        next_controller = controllers[next_centroid]
+        # Saving the update for visualization
+        # TODO: add generality
+        with open(f"./update_{update}.json", "w") as fp:
+            json.dump(
+                to_json_writable(real_map),
+                fp
+            )
+
+        # Check stopping conditions
+        stopping_condition = check_stopping_condition(real_map, recorded_perfs, alpha)
+        if stopping_condition:
+            print("The stopping condition has been achieved. Stopping.")
+            break
+        if updates > max_iterations:
+            break
+    
+    # TODO: return the new best performing controller.
+
