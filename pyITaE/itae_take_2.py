@@ -90,7 +90,7 @@ def update_real_and_variance_maps(model, perf_map, behaviors_map):
     return real_map, variance_map
 
 def acquisition(real_map, variance_map, kappa):
-    if variance_map = None:
+    if variance_map == None:
         return get_first_centroid(real_map)
 
     next_centroid, best_bound = None, -np.Inf
@@ -102,13 +102,13 @@ def acquisition(real_map, variance_map, kappa):
     print(f"Next centroid: {next_centroid}, value: {best_bound}")
     return next_centroid
 
-def itae(path, deploy, max_iterations=100):
+def itae(path, deploy, max_iterations=100, retest=True):
     """
     The algorithm itself. Takes the path to the map outputted by pymelites
     and the deploy function, which should take a controller and return
     performance and behavior.
 
-    TODO: test and visualize this with the rastrigin.
+    TODO: write a complete docstring. Refactor into a class.
     """
 
     # Preamble: map loading and defining constants
@@ -119,7 +119,8 @@ def itae(path, deploy, max_iterations=100):
 
     X = []
     Y = []
-    recorded_perfs = []
+    recorded_perfs = {}
+    recorded_behaviors = {}
 
     alpha = 0.8
     kappa = 0.03
@@ -130,35 +131,54 @@ def itae(path, deploy, max_iterations=100):
     # The main loop
     updates = 0
     while True:
+        to_append_to_X = None
+        to_append_to_Y = None
+
         # Get the next controller to test, check if it
         # has been tested in the past.
         next_centroid = acquisition(real_map, variance_map, kappa)
         next_controller = controllers[next_centroid]
+
         if next_centroid in tested_centroids:
-            # What do?
-            # I could retry it with some probability.
-            pass
+            if not retest:
+                print("I have seen this controller before and I'm not retesting it. I'm assuming it will have the same real performance.")
+                print(f"Using previous behavior: {behaviors_map[next_centroid]}")
+                print(f"Using previous recorded performance: {recorded_perfs[next_centroid]}")
+                to_append_to_X = recorded_behaviors[next_centroid]
+                to_append_to_Y = recorded_perfs[next_centroid]
+                dimension = len(to_append_to_X)
 
-        print(f"Deploying the controller {next_controller}")
-        performance, behavior = deploy(next_controller)
-        recorded_perfs.append(performance)
-        if best_performance < performance:
-            best_performance = performance
-            best_controller = next_controller
-            print(f"New best (real) performance found: {performance}")
-            print(f"Associated controller: {best_controller}")
-        tested_controllers[next_centroid] += 1
-        print(f"Performance of that controller: {performance}")
+            if retest:
+                print("I have seen this controller before, and I'm retesting it either way.")
 
-        dimension = len(behavior)
-        print(dimension)
-        print(f"dimension")
-        _ = input("Press enter to continue.")
+        if to_append_to_X is not None:
+            print(f"Deploying the controller {next_controller}")
+            performance, behavior = deploy(next_controller)
+
+            to_append_to_X = behavior
+            to_append_to_Y = performance
+            recorded_perfs[next_centroid] = performance
+            recorded_behaviors[next_centroid] = behavior
+
+            if best_performance < performance:
+                best_performance = performance
+                best_controller = next_controller
+                print(f"New best (real) performance found: {performance}")
+                print(f"Associated controller: {best_controller}")
+                print(f"Associated behavior: {behavior}")
+
+            tested_centroids[next_centroid] += 1
+            print(f"Performance of that controller: {performance}")
+
+            dimension = len(behavior)
+            # print(dimension)
+            # print(f"dimension")
+            _ = input("Press enter to continue.")
 
         kernel = GPy.kern.Matern52(input_dim=dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension, np.sqrt(0.1))
 
-        X.append(behavior)
-        Y.append(performance - perf_map[next_centroid])
+        X.append(to_append_to_X)
+        Y.append(to_append_to_Y - perf_map[next_centroid])
 
         print(f"X: {X}, Y: {Y}")
         m = GPy.models.GPRegression(
@@ -173,11 +193,11 @@ def itae(path, deploy, max_iterations=100):
         # But I need to find a consistent way of adding them here.
         real_map, variance_map = update_real_and_variance_maps(m, perf_map, behaviors_map)
         print(f"New real map: {real_map}.")
-        update += 1
+        updates += 1
 
         # Saving the update for visualization
         # TODO: add generality
-        with open(f"./update_{update}.json", "w") as fp:
+        with open(f"./update_{updates}.json", "w") as fp:
             json.dump(
                 to_json_writable(real_map),
                 fp
@@ -188,8 +208,9 @@ def itae(path, deploy, max_iterations=100):
         if stopping_condition:
             print("The stopping condition has been achieved. Stopping.")
             break
-        if updates > max_iterations:
+        if updates >= max_iterations:
             break
     
     # TODO: return the new best performing controller.
-
+    print(f"I'm out of the main loop. Here's the next best performing controller: {best_controller}")
+    return best_controller
