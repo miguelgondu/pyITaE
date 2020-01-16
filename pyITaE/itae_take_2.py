@@ -41,7 +41,7 @@ def check_stopping_condition(real_map, recorded_perfs, alpha):
     print(f"max recorded performance: {max_perf}, bound: {bound}")
     return max(recorded_perfs) > bound
 
-def get_next_centroid(real_map):
+def get_first_centroid(real_map):
     current_centroid, current_max = None, -np.Inf
     for centroid, performance in real_map.items():
         if performance > current_max:
@@ -52,7 +52,7 @@ def get_next_centroid(real_map):
     print(f"Next centroid: {current_centroid}.")
     return current_centroid
 
-def update_real_map(model, perf_map, behaviors_map):
+def update_real_and_variance_maps(model, perf_map, behaviors_map):
     centroids = []
     behaviors = []
     map_performances = []
@@ -74,15 +74,33 @@ def update_real_map(model, perf_map, behaviors_map):
     # _ = input("Press enter to continue. Debugging mean.")
 
     real_values = mean.T[0] + np.array(map_performances)
+    variance_values = variance.T[0]
     # print(f"real values: {real_values}")
     # _ = input("Press enter to continue. Debugging real_values.")
-    real_map = {
-        centroid: real_values[i] for i, centroid in enumerate(centroids)
-    }
+
+    # Updating the real and variance maps.
+    real_map = {}
+    variance_map = {}
+    for i, centroid in enumerate(centroids):
+        real_map[centroid] = real_values[i]
+        variance_map[centroid] = variance_values[i]
+
     # print(f"real map: {real_map}")
     # _ = input("Press enter to continue. Debugging real_map.")
-    return real_map
+    return real_map, variance_map
 
+def acquisition(real_map, variance_map, kappa):
+    if variance_map = None:
+        return get_first_centroid(real_map)
+
+    next_centroid, best_bound = None, -np.Inf
+    for centroid in real_map:
+        bound = real_map[centroid] + kappa * variance_map[centroid]
+        if bound > best_bound:
+            next_centroid = centroid
+            best_bound = bound
+    print(f"Next centroid: {next_centroid}, value: {best_bound}")
+    return next_centroid
 
 def itae(path, deploy, max_iterations=100):
     """
@@ -104,15 +122,17 @@ def itae(path, deploy, max_iterations=100):
     recorded_perfs = []
 
     alpha = 0.8
+    kappa = 0.03
 
     best_controller, best_performance = None, -np.Inf
+    variance_map = None
 
     # The main loop
     updates = 0
     while True:
         # Get the next controller to test, check if it
         # has been tested in the past.
-        next_centroid = get_next_centroid(real_map)
+        next_centroid = acquisition(real_map, variance_map, kappa)
         next_controller = controllers[next_centroid]
         if next_centroid in tested_centroids:
             # What do?
@@ -151,7 +171,7 @@ def itae(path, deploy, max_iterations=100):
         # mean, variance = m.predict(behaviors_map)
 
         # But I need to find a consistent way of adding them here.
-        real_map = update_real_map(m, perf_map, behaviors_map)
+        real_map, variance_map = update_real_and_variance_maps(m, perf_map, behaviors_map)
         print(f"New real map: {real_map}.")
         update += 1
 
