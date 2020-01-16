@@ -37,9 +37,9 @@ def check_stopping_condition(real_map, recorded_perfs, alpha):
     of the real performance).
     """
     bound = alpha*max(real_map.values())
-    max_perf = max(recorded_perfs)
+    max_perf = max(recorded_perfs.values())
     print(f"max recorded performance: {max_perf}, bound: {bound}")
-    return max(recorded_perfs) > bound
+    return max_perf > bound
 
 def get_first_centroid(real_map):
     current_centroid, current_max = None, -np.Inf
@@ -122,7 +122,7 @@ def itae(path, deploy, max_iterations=100, retest=True):
     recorded_perfs = {}
     recorded_behaviors = {}
 
-    alpha = 0.8
+    alpha = 0.85
     kappa = 0.03
 
     best_controller, best_performance = None, -np.Inf
@@ -151,7 +151,7 @@ def itae(path, deploy, max_iterations=100, retest=True):
             if retest:
                 print("I have seen this controller before, and I'm retesting it either way.")
 
-        if to_append_to_X is not None:
+        if to_append_to_X is None:
             print(f"Deploying the controller {next_controller}")
             performance, behavior = deploy(next_controller)
 
