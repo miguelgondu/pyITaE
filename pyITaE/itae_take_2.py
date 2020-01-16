@@ -131,6 +131,8 @@ def itae(path, deploy, max_iterations=100, retest=True):
     # The main loop
     updates = 0
     while True:
+        print("-"*80)
+        print(" " * 30 + f"Update {updates}" + " " * 30)
         to_append_to_X = None
         to_append_to_Y = None
 
@@ -173,7 +175,7 @@ def itae(path, deploy, max_iterations=100, retest=True):
             dimension = len(behavior)
             # print(dimension)
             # print(f"dimension")
-            _ = input("Press enter to continue.")
+            # _ = input("Press enter to continue.")
 
         kernel = GPy.kern.Matern52(input_dim=dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension, np.sqrt(0.1))
 
@@ -192,7 +194,7 @@ def itae(path, deploy, max_iterations=100, retest=True):
 
         # But I need to find a consistent way of adding them here.
         real_map, variance_map = update_real_and_variance_maps(m, perf_map, behaviors_map)
-        print(f"New real map: {real_map}.")
+        # print(f"New real map: {real_map}.")
         updates += 1
 
         # Saving the update for visualization
@@ -210,7 +212,9 @@ def itae(path, deploy, max_iterations=100, retest=True):
             break
         if updates >= max_iterations:
             break
-    
+
+        # print("-"*80 + "\n")
+
     # TODO: return the new best performing controller.
     print(f"I'm out of the main loop. Here's the next best performing controller: {best_controller}")
     return best_controller
