@@ -102,7 +102,7 @@ def acquisition(real_map, variance_map, kappa):
     print(f"Next centroid: {next_centroid}, value: {best_bound}")
     return next_centroid
 
-def itae(path, deploy, max_iterations=100, retest=True):
+def itae(path, deploy, max_iterations=100, retest=True, comment=""):
     """
     The algorithm itself. Takes the path to the map outputted by pymelites
     and the deploy function, which should take a controller and return
@@ -195,13 +195,23 @@ def itae(path, deploy, max_iterations=100, retest=True):
         # But I need to find a consistent way of adding them here.
         real_map, variance_map = update_real_and_variance_maps(m, perf_map, behaviors_map)
         # print(f"New real map: {real_map}.")
-        updates += 1
 
         # Saving the update for visualization
-        # TODO: add generality
-        with open(f"./update_{updates}.json", "w") as fp:
+        with open(f"./update_{comment}_{updates}.json", "w") as fp:
             json.dump(
                 to_json_writable(real_map),
+                fp
+            )
+
+        with open(f"./update_metadata_{comment}_{updates}.json", "w") as fp:
+            json.dump(
+                {
+                    "centroid_tested": next_centroid,
+                    "associated_controller": next_controller,
+                    "recorded_behavior": [float(x) for x in to_append_to_X],
+                    "recorded_performance": float(to_append_to_Y),
+                    "update": updates
+                },
                 fp
             )
 
@@ -213,6 +223,7 @@ def itae(path, deploy, max_iterations=100, retest=True):
         if updates >= max_iterations:
             break
 
+        updates += 1
         # print("-"*80 + "\n")
 
     # TODO: return the new best performing controller.
