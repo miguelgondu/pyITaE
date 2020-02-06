@@ -256,6 +256,7 @@ class ITAE:
 
         self.X = None
         self.Y = None
+        self.model = None
 
     def load_map(self):
         with open(path) as fp:

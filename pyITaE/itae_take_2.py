@@ -63,20 +63,12 @@ def update_real_and_variance_maps(model, perf_map, behaviors_map):
         assert performance is not None
         map_performances.append(perf_map[centroid])
 
-    # print(f"behaviors: {behaviors}")
-    # _ = input("Press enter to continue. Debugging behaviors.")
     behaviors = np.array(behaviors)
-    # print(f"behaviors: {behaviors}, shape: {behaviors.shape}")
-    # _ = input("Press enter to continue. Debugging behaviors.")
 
     mean, variance = model.predict(behaviors)
-    # print(f"mean: {mean}")
-    # _ = input("Press enter to continue. Debugging mean.")
 
     real_values = mean.T[0] + np.array(map_performances)
     variance_values = variance.T[0]
-    # print(f"real values: {real_values}")
-    # _ = input("Press enter to continue. Debugging real_values.")
 
     # Updating the real and variance maps.
     real_map = {}
@@ -85,8 +77,6 @@ def update_real_and_variance_maps(model, perf_map, behaviors_map):
         real_map[centroid] = real_values[i]
         variance_map[centroid] = variance_values[i]
 
-    # print(f"real map: {real_map}")
-    # _ = input("Press enter to continue. Debugging real_map.")
     return real_map, variance_map
 
 def acquisition(real_map, variance_map, kappa):
@@ -173,9 +163,6 @@ def itae(path, deploy, max_iterations=100, retest=True, comment=""):
             print(f"Performance of that controller: {performance}")
 
             dimension = len(behavior)
-            # print(dimension)
-            # print(f"dimension")
-            # _ = input("Press enter to continue.")
 
         kernel = GPy.kern.Matern52(input_dim=dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension, np.sqrt(0.1))
 
@@ -226,6 +213,5 @@ def itae(path, deploy, max_iterations=100, retest=True, comment=""):
         updates += 1
         # print("-"*80 + "\n")
 
-    # TODO: return the new best performing controller.
     print(f"I'm out of the main loop. Here's the next best performing controller: {best_controller}")
     return best_controller
