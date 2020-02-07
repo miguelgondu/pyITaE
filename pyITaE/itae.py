@@ -1,301 +1,232 @@
-'''
-This script contains the ITaE class, that maintains the map and updates
-of an ITaE application.
-
-TODO: test everything.
-'''
-import numpy as np
 import json
+import numpy as np
 import GPy
-from sklearn.gaussian_process import GaussianProcessRegressor
-from pymelites.map_elites import Cell, MAP_Elites
+from collections import defaultdict
 
-class ITaE:
-    '''
-    This class maintains all the relevant information that is processed by the ITaE
-    algorithm.
+def to_json_writable(dict_):
+    """
+    TODO: embetter this function
+    """
+    new_dict = {
+        str(k): v for k, v in dict_.items()
+    }
+    return new_dict
 
-    It takes:
-        - The ingredients for the map creation process using MAP_Elites from pymelites.
-            - simulate
-            - acquisition
-            - random_solution
-            - random_selection
-            - random_variation
-          Notice that the simulate is first, and acquisition is second.
-    It creates empty versions of
-        - The partition that describes the map.
-        - a map_elites attribute that stores the MAP_Elites object when
-          creating the map from scratch.
-        - cells and solutions, which essentially constitute the map.
+
+class ITAE:
+    def __init__(self, path, deploy, max_iterations=100, retest=True, comment=""):
+        self.path = path
+        self.deploy = deploy
+        self.max_iterations = max_iterations
+        self.retest = retest
+        self.comment = comment
+
+        self.alpha = 0.85
+        self.kappa = 0.03
+
+        self.perf_map = None
+        self.behaviors_map = None
+        self.controllers = None
+        self.real_map = None
+        self.variance_map = None
+
+        self.recorded_perfs = None
+        self.recorded_behaviors = None
+
+        self.tested_centroids = None
+
+        self.best_controller = None
+        self.best_performance = None
+
+        self.X = None
+        self.Y = None
+        self.model = None
+
+    def load_map(self):
+        with open(self.path) as fp:
+            docs = json.load(fp)
+
+        self.perf_map = {}
+        self.behaviors_map = {}
+        self.controllers = {}
+        for doc in docs.values():
+            centroid = tuple(doc["centroid"])
+            if doc["performance"] is not None:
+                self.perf_map[centroid] = doc["performance"]
+                self.behaviors_map[centroid] = doc["features"]
+                self.controllers[centroid] = doc["solution"]
+        
+        self.real_map = self.perf_map.copy()
+
+        self.tested_centroids = defaultdict(int)
+        self.recorded_perfs = {}
+        self.recorded_behaviors = {}
+
+    def check_stopping_condition(self):
+        bound = self.alpha*max(self.real_map.values())
+        max_perf = max(self.recorded_perfs.values())
+        return max_perf > bound
     
-    TODO:
-        - Implement get_next_best_genotype using the acquisition function.
-        - Test the compute_map method.
-        - Load behaviors and store them in load_map.
-    '''
-    def __init__(self, simulate=None, acquisition=None, run=None, random_solution=None, random_selection=None, random_variation=None):
-        if simulate is None:
-            raise ValueError("The simulate argument is required and mustn't be None.")
+    def get_first_centroid(self):
+        current_centroid, current_max = None, -np.Inf
+        for centroid, performance in self.real_map.items():
+            if performance > current_max:
+                current_centroid = centroid
+                current_max = performance
+                print(f"current centroid: {current_centroid}, performance: {performance}")
 
-        if acquisition is None:
-            raise ValueError("The acquisition argument is required and mustn't be None.")
+        print(f"Next centroid: {current_centroid}.")
+        return current_centroid
 
-        if run is None:
-            raise ValueError("The run argument is required and mustn't be None.")
+    def update_real_and_variance_maps(self):
+        centroids = []
+        behaviors = []
+        map_performances = []
+        for centroid, behavior in self.behaviors_map.items():
+            centroids.append(centroid)
+            behaviors.append(behavior)
+            performance = self.perf_map[centroid]
+            assert performance is not None
+            map_performances.append(self.perf_map[centroid])
 
-        # Required fields
-        self.simulate = simulate
-        self.acquisition = acquisition
-        self.run = run
+        behaviors = np.array(behaviors)
+        mean, variance = self.model.predict(behaviors)
+        real_values = mean.T[0] + np.array(map_performances)
+        variance_values = variance.T[0]
 
-        # Others (for MAP-Elites running, for example)
-        self.random_solution = random_solution
-        self.random_selection = random_selection
-        self.random_variation = random_variation
-        self.partition = None
-        self.map_elites = None
-        self.cells = None
-        self.solutions = None
-        self.behaviors = None
-        self.map_performances = None
+        # Updating the real and variance maps.
+        real_map = {}
+        variance_map = {}
+        for i, centroid in enumerate(centroids):
+            real_map[centroid] = real_values[i]
+            variance_map[centroid] = variance_values[i]
 
-    def compute_map(self, partition, generations, iterations_per_gen, generation_path='.'):
-        '''
-        This function computes the map according to the given partition (see the MAP_Elites'
-        create_cell method), amount of generations, amount of iterations per generation,
-        and stores the generations in the given path.
+        self.real_map = real_map
+        self.variance_map = variance_map
+    
+    def acquisition(self):
+        if self.variance_map == None:
+            return self.get_first_centroid()
+        
+        next_centroid, best_bound = None, -np.Inf
+        for centroid in self.real_map:
+            bound = self.real_map[centroid] + self.kappa * self.variance_map[centroid]
+            if bound > best_bound:
+                next_centroid = centroid
+                best_bound = bound
+        print(f"Next centroid: {next_centroid}, value: {best_bound}")
+        return next_centroid
 
-        TODO:
-            - add more kwargs, like amount_of_elites in the cell creation.
-            - test this.
-        '''
-        # Create the MAP_Elites object, create the cells, and compute the archive
+    def step(self, update_it=0):
+        to_append_to_X = None
+        to_append_to_Y = None
 
-        if self.random_solution is None:
-            raise ValueError("random_solution must be a function, not None.")
+        # Get the next controller to test, check if it
+        # has been tested in the past.
+        next_centroid = self.acquisition()
+        next_controller = self.controllers[next_centroid]
 
-        if self.random_selection is None:
-            raise ValueError("random_selection must be a function, not None.")
+        if next_centroid in self.tested_centroids:
+            if not self.retest:
+                print("I have seen this controller before and I'm not retesting it. I'm assuming it will have the same real performance.")
+                print(f"Using previous behavior: {self.behaviors_map[next_centroid]}")
+                print(f"Using previous recorded performance: {self.recorded_perfs[next_centroid]}")
+                to_append_to_X = self.recorded_behaviors[next_centroid]
+                to_append_to_Y = self.recorded_perfs[next_centroid]
+                dimension = len(to_append_to_X)
 
-        if self.random_variation is None:
-            raise ValueError("random_variation must be a function, not None.")
+            if self.retest:
+                print("I have seen this controller before, and I'm retesting it either way.")
 
-        self.map_elites = MAP_Elites(
-            self.random_solution,
-            self.random_selection,
-            self.random_variation,
-            self.simulate
+        if to_append_to_X is None:
+            print(f"Deploying the controller {next_controller}")
+            performance, behavior = self.deploy(next_controller)
+
+            to_append_to_X = behavior
+            to_append_to_Y = performance
+            self.recorded_perfs[next_centroid] = performance
+            self.recorded_behaviors[next_centroid] = behavior
+
+            if self.best_performance < performance:
+                self.best_performance = performance
+                self.best_controller = next_controller
+                print(f"New best (real) performance found: {performance}")
+                print(f"Associated controller: {self.best_controller}")
+                print(f"Associated behavior: {behavior}")
+
+            self.tested_centroids[next_centroid] += 1
+            print(f"Performance of that controller: {performance}")
+
+            dimension = len(behavior)
+            # print(dimension)
+            # print(f"dimension")
+            # _ = input("Press enter to continue.")
+
+        kernel = GPy.kern.Matern52(input_dim=dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension, np.sqrt(0.1))
+
+        self.X.append(to_append_to_X)
+        self.Y.append(to_append_to_Y - self.perf_map[next_centroid])
+
+        print(f"X: {self.X}, Y: {self.Y}")
+        self.model = GPy.models.GPRegression(
+            np.array(self.X),
+            np.array([self.Y]).T,
+            kernel
         )
 
-        # Create the cells
-        # TODO: if I were to add amount_of_elites kwarg, this
-        # needs to change.
-        self.map_elites.create_cells(partition)
+        # If this is the only use of behaviors_map, then it should just be a np.array.
+        # mean, variance = m.predict(behaviors_map)
 
-        # Compute the map
-        self.map_elites.compute_archive(
-            generations, iterations_per_gen, generation_path
-        )
+        # But I need to find a consistent way of adding them here.
+        self.update_real_and_variance_maps()
+        # print(f"New real map: {real_map}.")
 
-        # Store cells and solutions (should I do a deep copy of them?)
-        self.cells = self.map_elites.cells.copy()
-        self.solutions = self.map_elites.solutions.copy()
+        # Saving the update for visualization
+        with open(f"./update_{self.comment}_{update_it}.json", "w") as fp:
+            json.dump(
+                to_json_writable(self.real_map),
+                fp
+            )
 
+        with open(f"./update_metadata_{self.comment}_{update_it}.json", "w") as fp:
+            json.dump(
+                {
+                    "centroid_tested": next_centroid,
+                    "associated_controller": next_controller,
+                    "recorded_behavior": [float(x) for x in to_append_to_X],
+                    "recorded_performance": float(to_append_to_Y),
+                    "update": update_it
+                },
+                fp
+            )
 
-    def load_map(self, path):
-        '''
-        This function loads a 'generation_k.json' file, created by pymelites
-        after running compute_archive in a MAP_elites object.
+    def run(self):
+        self.load_map()
 
-        TODO:
-            - test this.
-        '''
-        with open(path) as fp:
-            doc = json.load(fp)
+        self.X = []
+        self.Y = []
 
-        # TODO: load behaviors as well
-        self.cells = {}
-        self.solutions = {}
-        for cell in doc.values():
-            centroid = tuple(cell['centroid'])
-            self.cells[centroid] = Cell.from_dict(cell)
-            self.solutions[centroid] = cell['solution']
-            self.map_performances[centroid] = cell['performance']
+        self.best_controller, self.best_performance = None, -np.Inf
 
-    def get_next_genotype(self, init=False, kappa=0.1):
-        # GP = []
-        # for i in range(0,len(mu_map)):
-        #     GP.append(mu_map[i] + kappa*sigma_map[i])
-        # return np.argmax(GP)
-        if not init:
-            # This won't work, because I'm storing everything in dicts.
-            # TODO: fix this.
-
-            return np.argmax(self.real_map + kappa*self.variance)
-
-        if init:
-            best_performance = -np.Inf
-            best_centroid = None
-            for centroid, performance in self.performances: # TODO: implement genotype getting.
-                if performance >= best_performance:
-                    best_centroid = centroid
-
-            return self.genotypes[best_centroid]
-            
-        
-    def deploy2(self, run):
-        '''
-        This function takes a run procedure (a function similar to that of
-        self.simulation, which takes a genotype and runs it, getting a behavior
-        descriptor and a real performance).
-
-        I should maybe maintain a "real_performance" dict that starts as the "map_performance" but is updated at each iteration. Now that I think about it, it doesn't make sense to build a new thing. This is just the mean of the GP.
-
-        STEPS IN THE ORIGINAL ITE:
-        1. Load the map
-        2. Filter it and create numpy arrays
-        3. Create a copy of the performance map.
-            - one as the "real" map, another as a saved copy for adding to the mean.
-            - They don't really use the n_fits_real for anything. They overwrite it with mean + map from the get-go.
-        4. Get the next "index" to test, which is essentially
-           getting the next "controller", or genotype in my
-           notation
-        5. Initialize the X and Y of the GP.
-        6. In the while loop:
-            6.1. Define the kernel of the GP (this could be done outside I would argue.)
-            6.2. predict the value of the mean in the 
-            low-dimensional behavior space (i.e. at the 
-            description space.)
-            6.3. use this mean to compute the actual real values.
-            6.4. Compute the percentages of changed values.
-            6.5. Get the next index to test.
-            6.6. If this new index has already been tested,
-                 register that, prepare to test said index again
-                 and up the counter for repetitions (?)
-
-                 They don't actually test the index again.
-            6.7. If this new index hasn't been tested, simulate
-                 it and record performance and behavior.
-            6.8. Update X and Y for the GP with relevant
-                 values.
-            6.9. Maintain the lists of real performances,
-                 tested controllers (genotypes), tested
-                 descriptions (behaviors), the number of
-                 iterations.
-
-                 Things like the real performance list
-                 are only being kept for archiving, they
-                 aren't used in the code itself as far as I
-                 can tell.
-            6.10. Check the stopping condition. Stop if
-                  that's the case.
-        
-
-        TODO: finish this documentation.
-        '''
-        # Init
-        # TODO: get back to this.
-        running = True
-        tested_behaviors = None
-        Y = None
-        while running:
-            # Main loop.
-            # Get and run the best candidate genotype.
-            next_genotype, map_performance = self.get_next_genotype()
-            behavior, real_performance = run(next_genotype)
-
-            # Update the X and Y of the GP.
-            x = np.array([behavior])
-            y = np.array([real_performance - map_performance])
-            if tested_behaviors is None:
-                tested_behaviors = x
-            else:
-                tested_behaviors = np.vstack((tested_behaviors, x))
-            
-            if Y is None:
-                Y = y
-            else:
-                Y = np.vstack(Y, y)
-
-            # Compute and update the GP
-            dimension = behavior.shape[0]
-            ker = GPy.kern.Matern52(dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension,np.sqrt(0.1))
-            m = GPy.models.GPRegression(tested_behaviors, Y, ker)
-
-            # Return the map to normal by predicting and adding.
-            # means = []
-            variances = []
-            real_map = {}
-            for centroid, behavior in self.behaviors.items():
-                mean, variance = m.predict(np.array([behavior]))
-                # means.append(mean)
-                variances.append(variance)
-                # Remember: mean is real - map performance.
-                real_map[centroid] = mean + self.map_performances[centroid]
-
-            # This is a very dumb way of doing this, I wonder if I could improve
-            # it or just move to storing the raw np arrays as they do.
-            # I now think it makes sense to stick with
-            # dicts, and to do it this way, because
-            # the optimization is continuous, and
-            # updating the map by having memory of pre-
-            # vious maps doesn't make sense.
-            self.real_map = real_map
-            means, variances = np.array(means), np.array(variances)
-
-            # decide if we want to stop.
-            # TODO: implement the exit condition.
-            exit_condition = False
-            if exit_condition:
-                running = False
-
-
-    def deploy(self):
-        # Initialization.
-        rho = 0.4
-        variance_noise_square = 0.001
-        tested_behaviors = []
-        tested_genotypes = {}
-        Y = [] # the difference between real performance and map performance.
-
-        next_best_genotype, map_performance = self.get_next_best_genotype()
-
-        # Loop
+        # The main loop
+        update_it = 0
         while True:
-            # Run the next genotype, if we haven't tested it before (TODO: add prior testing verification)
-            behavior, real_performance = self.run(next_best_genotype)
-            tested_genotypes[next_best_genotype] = real_performance
+            # Run a step of the updating
+            print("-"*80)
+            print(" " * 30 + f"Update {update_it}" + " " * 30)
+            self.step(update_it)
 
-            # Update the domain and codomain of the GP. GP is modeling
-            # the difference between the real performance and the
-            # map's performance.
-            if len(tested_behaviors) == 0:
-                tested_behaviors = np.array(list(behavior))
-            else:
-                tested_behaviors = np.vstack((tested_behaviors, behavior))
+            # Check stopping conditions
+            stopping_condition = self.check_stopping_condition()
+            if stopping_condition:
+                print("The stopping condition has been achieved. Stopping.")
+                break
+            if update_it >= self.max_iterations:
+                break
 
-            y = real_performance - map_performance
-            if len(Y) == 0:
-                Y = np.array([y])
-            else:
-                Y = np.vstack((Y, np.array([y])))
+            update_it += 1
+            # print("-"*80 + "\n")
 
-            # Compute the GP with the updated domain and codomain.
-            dimension = behavior.shape[0]
-            ker = GPy.kern.Matern52(dimension, lengthscale=rho, ARD=False) + GPy.kern.White(dimension,np.sqrt(variance_noise_square))
-            m = GPy.models.GPRegression(tested_behaviors, Y, ker)
-
-            # Predict the map "real - simulation"
-            # TODO: fill behaviors.
-            means, variances = m.predict(self.behaviors)
-
-            # From this, get the map "real" by adding the simulation
-            self.pred_performances = means + self.map_performances
-
-            # Huh, the meaning of map here is different from above. It should be querying
-            # the updated map.
-            next_best_genotype, map_performance = self.get_next_best_genotype()
-
-            # TODO: add an exit condition.
+        # TODO: return the new best performing controller.
+        print(f"I'm out of the main loop. Here's the next best performing controller: {self.best_controller}")
 
