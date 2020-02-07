@@ -15,6 +15,23 @@ def to_json_writable(dict_):
 
 class ITAE:
     def __init__(self, path, deploy, max_iterations=100, retest=True, comment=""):
+        """
+        ITAE class: an object that runs the Intelligent Trial and Error
+        algorithm, maintaining the results of the deployment and the current
+        model of the world.
+
+        It takes:
+            - a path for the generation json file outputted by pymelites.
+            - a deploy function that takes a genotype (or controller) and 
+              returns a tuple (performance, behavior). If you're familiar
+              with pymelites, think of the "simulate" function in the
+              MAP-Elites object.
+        Optional parameters:
+            - max_iterations: maximum iterations at run time. (int)
+            - retest: a boolean flag that says whether or not to retest
+              a controller.
+            - comment: a string that will be included in the saving files.
+        """
         self.path = path
         self.deploy = deploy
         self.max_iterations = max_iterations
