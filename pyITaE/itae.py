@@ -3,6 +3,9 @@ import numpy as np
 import GPy
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
 def to_json_writable(dict_):
     """
     TODO: embetter this function
@@ -247,3 +250,26 @@ class ITAE:
         # TODO: return the new best performing controller.
         print(f"I'm out of the main loop. Here's the next best performing controller: {self.best_controller}")
 
+    def plot_update_surface(self, xlims, ylims):
+        """
+        TODO: write docstring, add plotting of the variance.
+
+        It seems that I'll only be able to print whatever's on the
+        real map, right?, because the model is learning real - simulation, and
+        simulation is only defined in some points of the box.
+        """
+        # The idea: plotting whatever the model's predicting in a bounded box.
+        domain_X = np.linspace(xlims[0], xlims[1], 100)
+        domain_Y = np.linspace(ylims[0], ylims[1], 100)
+        domain_X, domain_Y = np.meshgrid(domain_X, domain_Y)
+
+        Z = np.zeros(shape=domain_X.shape)
+        for i, row_X in enumerate(domain_X):
+            for j, x in enumerate(row_X):
+                y = domain_Y[i, j]
+                mean, variance = self.model.predict((x, y))
+                Z[i, j] = mean
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_surface(domain_X, domain_Y, Z)
