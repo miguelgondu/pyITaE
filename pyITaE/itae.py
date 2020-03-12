@@ -15,9 +15,10 @@ def to_json_writable(dict_):
     }
     return new_dict
 
+    
 
 class ITAE:
-    def __init__(self, path, deploy, max_iterations=100, retest=True, comment=""):
+    def __init__(self, path, deploy, max_iterations=100, retest=True, comment="", path_to_updates="."):
         """
         ITAE class: an object that runs the Intelligent Trial and Error
         algorithm, maintaining the results of the deployment and the current
@@ -40,6 +41,7 @@ class ITAE:
         self.max_iterations = max_iterations
         self.retest = retest
         self.comment = comment
+        self.path_to_updates = path_to_updates
 
         self.alpha = 0.85
         self.kappa = 0.03
@@ -62,6 +64,26 @@ class ITAE:
         self.Y = None
         self.model = None
 
+    def update_generation(self, update_it):
+        """
+        This function creates a new generation-like file
+        with the performances stored in real_map.
+
+        The input follows the name conventions of the run method of
+        the ITAE class, that is: path is a string with the filepath to
+        the generation string, and real_map is a dict {centroid: performance}.
+        """
+        with open(self.path) as fp:
+            generation = json.load(fp)
+
+        for centroid, real_perf in self.real_map.items():
+            key = str(centroid).replace("(", "[").replace(")", "]")
+            generation[key]["performance"] = real_perf
+
+        path_to_update = f"{self.path_to_updates}/update_{self.comment}_{update_it}.json"
+        with open(path_to_update, "w") as fp:
+            json.dump(generation, fp)
+
     def load_map(self):
         with open(self.path) as fp:
             docs = json.load(fp)
@@ -69,11 +91,20 @@ class ITAE:
         self.perf_map = {}
         self.behaviors_map = {}
         self.controllers = {}
+        keys = None
         for doc in docs.values():
             centroid = tuple(doc["centroid"])
             if doc["performance"] is not None:
                 self.perf_map[centroid] = doc["performance"]
-                self.behaviors_map[centroid] = doc["features"]
+                if isinstance(doc["features"], dict):
+                    if keys is None:
+                        keys = list(doc["features"].keys())
+                        keys.sort()
+                    
+                    features_as_list = [doc["features"][k] for k in keys]
+                    self.behaviors_map[centroid] = features_as_list
+                else:
+                    self.behaviors_map[centroid] = doc["features"]
                 self.controllers[centroid] = doc["solution"]
         
         self.real_map = self.perf_map.copy()
@@ -139,7 +170,7 @@ class ITAE:
 
     def step(self, update_it=0):
         to_append_to_X = None
-        to_append_to_Y = None
+        almost_to_append_to_Y = None
 
         # Get the next controller to test, check if it
         # has been tested in the past.
@@ -152,7 +183,7 @@ class ITAE:
                 print(f"Using previous behavior: {self.behaviors_map[next_centroid]}")
                 print(f"Using previous recorded performance: {self.recorded_perfs[next_centroid]}")
                 to_append_to_X = self.recorded_behaviors[next_centroid]
-                to_append_to_Y = self.recorded_perfs[next_centroid]
+                almost_to_append_to_Y = self.recorded_perfs[next_centroid]
                 dimension = len(to_append_to_X)
 
             if self.retest:
@@ -161,9 +192,15 @@ class ITAE:
         if to_append_to_X is None:
             print(f"Deploying the controller {next_controller}")
             performance, behavior = self.deploy(next_controller)
-
-            to_append_to_X = behavior
-            to_append_to_Y = performance
+            # TODO: I need to change the behavior here
+            if isinstance(behavior, dict):
+                keys = list(behavior.keys())
+                keys.sort()
+                behavior_as_list = [behavior[k] for k in keys]
+                to_append_to_X = behavior_as_list
+            else:
+                to_append_to_X = behavior
+            almost_to_append_to_Y = performance
             self.recorded_perfs[next_centroid] = performance
             self.recorded_behaviors[next_centroid] = behavior
 
@@ -185,7 +222,7 @@ class ITAE:
         kernel = GPy.kern.Matern52(input_dim=dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension, np.sqrt(0.1))
 
         self.X.append(to_append_to_X)
-        self.Y.append(to_append_to_Y - self.perf_map[next_centroid])
+        self.Y.append(almost_to_append_to_Y - self.perf_map[next_centroid])
 
         print(f"X: {self.X}, Y: {self.Y}")
         self.model = GPy.models.GPRegression(
@@ -202,23 +239,22 @@ class ITAE:
         # print(f"New real map: {real_map}.")
 
         # Saving the update for visualization
-        with open(f"./update_{self.comment}_{update_it}.json", "w") as fp:
-            json.dump(
-                to_json_writable(self.real_map),
-                fp
-            )
+        self.update_generation(update_it)
 
-        with open(f"./update_metadata_{self.comment}_{update_it}.json", "w") as fp:
+        # Saving the update metadata
+        path_to_metadata = f"{self.path_to_updates}/update_metadata_{self.comment}_{update_it}.json"
+        with open(path_to_metadata, "w") as fp:
             json.dump(
                 {
                     "centroid_tested": next_centroid,
                     "associated_controller": next_controller,
                     "recorded_behavior": [float(x) for x in to_append_to_X],
-                    "recorded_performance": float(to_append_to_Y),
+                    "recorded_performance": float(almost_to_append_to_Y),
                     "update": update_it
                 },
                 fp
             )
+
 
     def run(self):
         self.load_map()
