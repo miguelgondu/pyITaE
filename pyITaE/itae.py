@@ -191,7 +191,11 @@ class ITAE:
 
         if to_append_to_X is None:
             print(f"Deploying the controller {next_controller}")
-            performance, behavior = self.deploy(next_controller)
+            tuple_ = self.deploy(next_controller)
+            if len(tuple_) == 2:
+                performance, behavior = tuple_
+            elif len(tuple_) == 3:
+                performance, behavior, metadata = tuple_
             # TODO: I need to change the behavior here
             if isinstance(behavior, dict):
                 keys = list(behavior.keys())
@@ -250,7 +254,10 @@ class ITAE:
                     "associated_controller": next_controller,
                     "recorded_behavior": [float(x) for x in to_append_to_X],
                     "recorded_performance": float(almost_to_append_to_Y),
-                    "update": update_it
+                    "best_controller": self.best_controller,
+                    "best_performance": float(self.best_performance),
+                    "update": update_it,
+                    "metadata": metadata
                 },
                 fp
             )
