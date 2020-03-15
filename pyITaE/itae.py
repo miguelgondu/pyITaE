@@ -284,7 +284,7 @@ class ITAE:
             if stopping_condition:
                 print("The stopping condition has been achieved. Stopping.")
                 break
-            if update_it >= self.max_iterations:
+            if update_it >= self.max_iterations - 1:
                 break
 
             update_it += 1
