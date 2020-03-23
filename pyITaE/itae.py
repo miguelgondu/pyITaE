@@ -18,7 +18,7 @@ def to_json_writable(dict_):
     
 
 class ITAE:
-    def __init__(self, path, deploy, max_iterations=100, retest=True, comment="", path_to_updates="."):
+    def __init__(self, path, deploy, max_iterations=100, retest=True, comment="", path_to_updates=".", performance_bound=None):
         """
         ITAE class: an object that runs the Intelligent Trial and Error
         algorithm, maintaining the results of the deployment and the current
@@ -35,6 +35,9 @@ class ITAE:
             - retest: a boolean flag that says whether or not to retest
               a controller.
             - comment: a string that will be included in the saving files.
+            - performance_bound: a lower bound on the performance that changes
+              the stopping criteria to be "finding a level of at least
+              {performance_bound} performance".
         """
         self.path = path
         self.deploy = deploy
@@ -42,6 +45,7 @@ class ITAE:
         self.retest = retest
         self.comment = comment
         self.path_to_updates = path_to_updates
+        self.performance_bound = performance_bound
 
         self.alpha = 0.85
         self.kappa = 0.03
@@ -64,7 +68,9 @@ class ITAE:
         self.Y = None
         self.model = None
 
-    def update_generation(self, update_it):
+        self.update_it = None
+
+    def update_generation(self):
         """
         This function creates a new generation-like file
         with the performances stored in real_map.
@@ -80,7 +86,7 @@ class ITAE:
             key = str(centroid).replace("(", "[").replace(")", "]")
             generation[key]["performance"] = real_perf
 
-        path_to_update = f"{self.path_to_updates}/update_{self.comment}_{update_it}.json"
+        path_to_update = f"{self.path_to_updates}/update_{self.comment}_{self.update_it}.json"
         with open(path_to_update, "w") as fp:
             json.dump(generation, fp)
 
@@ -114,10 +120,27 @@ class ITAE:
         self.recorded_behaviors = {}
 
     def check_stopping_condition(self):
-        bound = self.alpha*max(self.real_map.values())
-        max_perf = max(self.recorded_perfs.values())
-        return max_perf > bound
-    
+        if self.update_it >= self.max_iterations:
+            return True
+
+        if self.performance_bound:
+            """
+            This is an alternative stopping condition to the original
+            one. In this version, the algorithm only stops after finding
+            a "good enough" controller, where by good enough we mean
+            >= self.performance_bound.
+            """
+            return self.best_performance >= self.performance_bound
+        else:
+            """
+            This stopping condition is the one in the original ITAE
+            algorithm implementation. We have found that this one
+            only works when the prior maps are very illuminated.
+            """
+            bound = self.alpha*max(self.real_map.values())
+            max_perf = max(self.recorded_perfs.values())
+            return max_perf > bound
+
     def get_first_centroid(self):
         current_centroid, current_max = None, -np.Inf
         for centroid, performance in self.real_map.items():
@@ -168,7 +191,7 @@ class ITAE:
         print(f"Next centroid: {next_centroid}, value: {best_bound}")
         return next_centroid
 
-    def step(self, update_it=0):
+    def step(self):
         to_append_to_X = None
         almost_to_append_to_Y = None
 
@@ -243,10 +266,10 @@ class ITAE:
         # print(f"New real map: {real_map}.")
 
         # Saving the update for visualization
-        self.update_generation(update_it)
+        self.update_generation()
 
         # Saving the update metadata
-        path_to_metadata = f"{self.path_to_updates}/update_metadata_{self.comment}_{update_it}.json"
+        path_to_metadata = f"{self.path_to_updates}/update_metadata_{self.comment}_{self.update_it}.json"
         with open(path_to_metadata, "w") as fp:
             json.dump(
                 {
@@ -256,7 +279,7 @@ class ITAE:
                     "recorded_performance": float(almost_to_append_to_Y),
                     "best_controller": self.best_controller,
                     "best_performance": float(self.best_performance),
-                    "update": update_it,
+                    "update": self.update_it,
                     "metadata": metadata
                 },
                 fp
@@ -272,22 +295,20 @@ class ITAE:
         self.best_controller, self.best_performance = None, -np.Inf
 
         # The main loop
-        update_it = 0
+        self.update_it = 0
         while True:
             # Run a step of the updating
             print("-"*80)
-            print(" " * 30 + f"Update {update_it}" + " " * 30)
-            self.step(update_it)
+            print(" " * 30 + f"Update {self.update_it}" + " " * 30)
+            self.step()
 
             # Check stopping conditions
             stopping_condition = self.check_stopping_condition()
             if stopping_condition:
                 print("The stopping condition has been achieved. Stopping.")
                 break
-            if update_it >= self.max_iterations:
-                break
 
-            update_it += 1
+            self.update_it += 1
             # print("-"*80 + "\n")
 
         # TODO: return the new best performing controller.
@@ -310,7 +331,7 @@ class ITAE:
         for i, row_X in enumerate(domain_X):
             for j, x in enumerate(row_X):
                 y = domain_Y[i, j]
-                mean, variance = self.model.predict((x, y))
+                mean, _ = self.model.predict((x, y))
                 Z[i, j] = mean
 
         fig = plt.figure()
