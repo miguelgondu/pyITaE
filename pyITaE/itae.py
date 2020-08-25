@@ -15,10 +15,8 @@ def to_json_writable(dict_):
     }
     return new_dict
 
-    
-
 class ITAE:
-    def __init__(self, path, deploy, max_iterations=100, retest=True, comment="", path_to_updates=".", performance_bound=None):
+    def __init__(self, path, deploy, max_iterations=100, retest=True, goal=None, distance_to_goal=None, comment="", path_to_updates=".", performance_bound=None):
         """
         ITAE class: an object that runs the Intelligent Trial and Error
         algorithm, maintaining the results of the deployment and the current
@@ -47,8 +45,15 @@ class ITAE:
         self.path_to_updates = path_to_updates
         self.performance_bound = performance_bound
 
-        self.alpha = 0.85
-        self.kappa = 0.03
+        # For bent acquisitions
+        if goal is not None:
+            assert isinstance(goal, (float, int)), "goal should be a float or int."
+            assert isinstance(distance_to_goal, (float, int)), "if you specified goal, you need to specify distance to goal for the stopping condition"
+        self.goal = goal
+        self.distance_to_goal = distance_to_goal
+
+        self.alpha = 0.85 # percentage of performance that we're happy with.
+        self.kappa = 0.03 # UCB constant.
 
         self.perf_map = None
         self.behaviors_map = None
@@ -69,6 +74,21 @@ class ITAE:
         self.model = None
 
         self.update_it = None
+
+    def _obj_function(self, r):
+        """
+        This function is the identity if self.goal is None,
+        else, it returns
+
+            - (r - self.goal) ** 2
+
+        This way, we can optimize for self.goal instead of
+        maximizing the real value of the performance.
+        """
+        if self.goal is None:
+            return r
+        else:
+            return - (r - self.goal) ** 2
 
     def update_generation(self):
         """
@@ -123,7 +143,13 @@ class ITAE:
         if self.update_it >= self.max_iterations:
             return True
 
-        if self.performance_bound:
+        if self.goal is not None:
+            """
+            If we're not maximizing, we will need to use
+            self.distance_to_goal to stop.
+            """
+            return np.abs(self.best_performance - self.goal) < self.distance_to_goal
+        elif self.performance_bound is not None:
             """
             This is an alternative stopping condition to the original
             one. In this version, the algorithm only stops after finding
@@ -146,7 +172,7 @@ class ITAE:
         for centroid, performance in self.real_map.items():
             if performance > current_max:
                 current_centroid = centroid
-                current_max = performance
+                current_max = self._obj_function(performance)
                 print(f"current centroid: {current_centroid}, performance: {performance}")
 
         print(f"Next centroid: {current_centroid}.")
@@ -185,6 +211,7 @@ class ITAE:
         next_centroid, best_bound = None, -np.Inf
         for centroid in self.real_map:
             bound = self.real_map[centroid] + self.kappa * self.variance_map[centroid]
+            bound = self._obj_function(bound)
             if bound > best_bound:
                 next_centroid = centroid
                 best_bound = bound
@@ -217,6 +244,7 @@ class ITAE:
             tuple_ = self.deploy(next_controller)
             if len(tuple_) == 2:
                 performance, behavior = tuple_
+                metadata = None
             elif len(tuple_) == 3:
                 performance, behavior, metadata = tuple_
             # TODO: I need to change the behavior here
@@ -231,10 +259,14 @@ class ITAE:
             self.recorded_perfs[next_centroid] = performance
             self.recorded_behaviors[next_centroid] = behavior
 
-            if self.best_performance < performance:
+            best_obj_value = self._obj_function(self.best_performance)
+            current_obj_value = self._obj_function(performance)
+            if best_obj_value < current_obj_value:
                 self.best_performance = performance
                 self.best_controller = next_controller
                 print(f"New best (real) performance found: {performance}")
+                if self.goal is not None:
+                    print(f"We're aiming for {self.goal} performance.")
                 print(f"Associated controller: {self.best_controller}")
                 print(f"Associated behavior: {behavior}")
 
@@ -280,6 +312,7 @@ class ITAE:
                     "best_controller": self.best_controller,
                     "best_performance": float(self.best_performance),
                     "update": self.update_it,
+                    "goal": self.goal,
                     "metadata": metadata
                 },
                 fp
@@ -315,7 +348,7 @@ class ITAE:
             # print("-"*80 + "\n")
 
         # TODO: return the new best performing controller.
-        print(f"I'm out of the main loop. Here's the next best performing controller: {self.best_controller}")
+        print(f"Here's the next best performing controller: {self.best_controller}, Here's the best performance: {self.best_performance}")
 
     def plot_update_surface(self, xlims, ylims):
         """
