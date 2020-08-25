@@ -75,7 +75,7 @@ class ITAE:
 
         self.update_it = None
 
-    def _obj_function(self, r):
+    def _objective(self, r):
         """
         This function is the identity if self.goal is None,
         else, it returns
@@ -172,7 +172,7 @@ class ITAE:
         for centroid, performance in self.real_map.items():
             if performance > current_max:
                 current_centroid = centroid
-                current_max = self._obj_function(performance)
+                current_max = self._objective(performance)
                 print(f"current centroid: {current_centroid}, performance: {performance}")
 
         print(f"Next centroid: {current_centroid}.")
@@ -203,7 +203,7 @@ class ITAE:
 
         self.real_map = real_map
         self.variance_map = variance_map
-    
+
     def acquisition(self):
         if self.variance_map == None:
             return self.get_first_centroid()
@@ -211,7 +211,7 @@ class ITAE:
         next_centroid, best_bound = None, -np.Inf
         for centroid in self.real_map:
             bound = self.real_map[centroid] + self.kappa * self.variance_map[centroid]
-            bound = self._obj_function(bound)
+            bound = self._objective(bound)
             if bound > best_bound:
                 next_centroid = centroid
                 best_bound = bound
@@ -259,8 +259,8 @@ class ITAE:
             self.recorded_perfs[next_centroid] = performance
             self.recorded_behaviors[next_centroid] = behavior
 
-            best_obj_value = self._obj_function(self.best_performance)
-            current_obj_value = self._obj_function(performance)
+            best_obj_value = self._objective(self.best_performance)
+            current_obj_value = self._objective(performance)
             if best_obj_value < current_obj_value:
                 self.best_performance = performance
                 self.best_controller = next_controller

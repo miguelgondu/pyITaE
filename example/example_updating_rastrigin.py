@@ -20,15 +20,15 @@ def deploy(x):
     performance = - 10 -(A*n + np.sum(x ** 2 - A*np.cos(2*np.pi*x)))
     return performance, features
 
-# itae = ITAE(
-#     path="rastrigin_archive.json",
-#     deploy=deploy,
-#     goal=-100,
-#     distance_to_goal=5)
-
 itae = ITAE(
     path="rastrigin_archive.json",
-    deploy=deploy
-)
+    deploy=deploy,
+    goal=-100,
+    distance_to_goal=5)
+
+# itae = ITAE(
+#     path="rastrigin_archive.json",
+#     deploy=deploy
+# )
 
 itae.run()
