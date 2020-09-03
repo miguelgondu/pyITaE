@@ -1,6 +1,9 @@
 import json
 import numpy as np
 import GPy
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel
+from sklearn.gaussian_process.kernels import Matern
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
@@ -16,24 +19,31 @@ def to_json_writable(dict_):
     return new_dict
 
 class ITAE:
-    def __init__(self, path, deploy, max_iterations=100, retest=True, goal=None, distance_to_goal=None, comment="", path_to_updates=".", performance_bound=None):
+    def __init__(self, path, deploy, max_iterations=100, kernel=None, retest=True, goal=None, distance_to_goal=None, comment="", path_to_updates=".", performance_bound=None):
         """
         ITAE class: an object that runs the Intelligent Trial and Error
         algorithm, maintaining the results of the deployment and the current
         model of the world.
 
         It takes:
-            - a path for the generation json file outputted by pymelites.
-            - a deploy function that takes a genotype (or controller) and 
-              returns a tuple (performance, behavior). If you're familiar
-              with pymelites, think of the "simulate" function in the
-              MAP-Elites object.
+            path (str): a path to the prior json file outputted by pymelites.
+            deploy (f): a deploy function that takes a genotype (or controller) and 
+                    returns a tuple (performance, behavior). If you're familiar
+                    with pymelites, think of the "simulate" function in the
+                    MAP-Elites object.
         Optional parameters:
-            - max_iterations: maximum iterations at run time. (int)
-            - retest: a boolean flag that says whether or not to retest
-              a controller.
-            - comment: a string that will be included in the saving files.
-            - performance_bound: a lower bound on the performance that changes
+            max_iterations (int): maximum iterations of Bayesian Updating
+                                  at run time.
+            kernel (sci-kit learn's): the kernel for the GP.
+            retest (bool): a boolean flag that says whether or not to retest
+                           a controller.
+            goal (float): a target performance (if we shouldn't maximize the
+                          performance itself)
+            distance_to_goal (float): Stopping criteria if goal is not None,
+                we will stop if we are this close to the goal.
+            comment (str): a string that will be included in the files' names.
+            path_to_updates (str): where to save the updates.
+            performance_bound: a lower bound on the performance that changes
               the stopping criteria to be "finding a level of at least
               {performance_bound} performance".
         """
@@ -44,6 +54,14 @@ class ITAE:
         self.comment = comment
         self.path_to_updates = path_to_updates
         self.performance_bound = performance_bound
+
+        if kernel is None:
+            """
+            Default kernel: Matern 5/2 plus diagonal noise.
+            """
+            kernel = 1 * Matern(nu=5/2) + WhiteKernel(noise_level=np.log(2))
+
+        self.kernel = kernel
 
         # For bent acquisitions
         if goal is not None:
@@ -59,7 +77,7 @@ class ITAE:
         self.behaviors_map = None
         self.controllers = None
         self.real_map = None
-        self.variance_map = None
+        self.sigma_map = None
 
         self.recorded_perfs = None
         self.recorded_behaviors = None
@@ -77,13 +95,16 @@ class ITAE:
 
     def _objective(self, r):
         """
-        This function is the identity if self.goal is None,
-        else, it returns
-
+        This function returns the objective function that
+        we are trying to optimize. If the self.goal is None,
+        then it is performance (and we'll return the identity
+        function), but if self.goal is a numerical value, we
+        return
+        
             - (r - self.goal) ** 2
 
         This way, we can optimize for self.goal instead of
-        maximizing the real value of the performance.
+        maximizing performance.
         """
         if self.goal is None:
             return r
@@ -126,7 +147,7 @@ class ITAE:
                     if keys is None:
                         keys = list(doc["features"].keys())
                         keys.sort()
-                    
+
                     features_as_list = [doc["features"][k] for k in keys]
                     self.behaviors_map[centroid] = features_as_list
                 else:
@@ -173,12 +194,12 @@ class ITAE:
             if performance > current_max:
                 current_centroid = centroid
                 current_max = self._objective(performance)
-                print(f"current centroid: {current_centroid}, performance: {performance}")
+                # print(f"current centroid: {current_centroid}, performance: {performance}")
 
-        print(f"Next centroid: {current_centroid}.")
+        # print(f"Next centroid: {current_centroid}.")
         return current_centroid
 
-    def update_real_and_variance_maps(self):
+    def update_real_and_sigma_maps(self):
         centroids = []
         behaviors = []
         map_performances = []
@@ -190,32 +211,38 @@ class ITAE:
             map_performances.append(self.perf_map[centroid])
 
         behaviors = np.array(behaviors)
-        mean, variance = self.model.predict(behaviors)
+        mean, sigma = self.model.predict(behaviors, return_std=True)
         real_values = mean.T[0] + np.array(map_performances)
-        variance_values = variance.T[0]
+        sigma_values = sigma
 
         # Updating the real and variance maps.
         real_map = {}
-        variance_map = {}
+        sigma_map = {}
+        print(f"real_values: {real_values}")
+        print(f"sigma_values: {sigma_values}")
         for i, centroid in enumerate(centroids):
             real_map[centroid] = real_values[i]
-            variance_map[centroid] = variance_values[i]
+            sigma_map[centroid] = sigma_values[i]
 
         self.real_map = real_map
-        self.variance_map = variance_map
+        self.sigma_map = sigma_map
 
     def acquisition(self):
-        if self.variance_map == None:
+        if self.sigma_map == None:
+            next_centroid = self.get_first_centroid()
+            print(f"First centroid to test: {next_centroid}")
+            print(f"Its performance in the prior: {self.perf_map[next_centroid]}")
             return self.get_first_centroid()
         
         next_centroid, best_bound = None, -np.Inf
         for centroid in self.real_map:
-            bound = self.real_map[centroid] + self.kappa * self.variance_map[centroid]
+            bound = self.real_map[centroid] + self.kappa * self.sigma_map[centroid]
             bound = self._objective(bound)
             if bound > best_bound:
                 next_centroid = centroid
                 best_bound = bound
-        print(f"Next centroid: {next_centroid}, value: {best_bound}")
+        print(f"Next centroid: {next_centroid}, bound: {best_bound}")
+        print(f"Our current prediction: {self.real_map[next_centroid]}")
         return next_centroid
 
     def step(self):
@@ -235,6 +262,7 @@ class ITAE:
                 to_append_to_X = self.recorded_behaviors[next_centroid]
                 almost_to_append_to_Y = self.recorded_perfs[next_centroid]
                 dimension = len(to_append_to_X)
+                metadata = None
 
             if self.retest:
                 print("I have seen this controller before, and I'm retesting it either way.")
@@ -254,7 +282,7 @@ class ITAE:
                 behavior_as_list = [behavior[k] for k in keys]
                 to_append_to_X = behavior_as_list
             else:
-                to_append_to_X = behavior
+                to_append_to_X = list(behavior)
             almost_to_append_to_Y = performance
             self.recorded_perfs[next_centroid] = performance
             self.recorded_behaviors[next_centroid] = behavior
@@ -274,27 +302,21 @@ class ITAE:
             print(f"Performance of that controller: {performance}")
 
             dimension = len(behavior)
-            # print(dimension)
-            # print(f"dimension")
-            # _ = input("Press enter to continue.")
-
-        kernel = GPy.kern.Matern52(input_dim=dimension, lengthscale=1, ARD=False) + GPy.kern.White(dimension, np.sqrt(0.1))
 
         self.X.append(to_append_to_X)
         self.Y.append(almost_to_append_to_Y - self.perf_map[next_centroid])
 
         print(f"X: {self.X}, Y: {self.Y}")
-        self.model = GPy.models.GPRegression(
-            np.array(self.X),
-            np.array([self.Y]).T,
-            kernel
-        )
+        self.model = GaussianProcessRegressor(kernel=self.kernel)
+        # Will it complain about sizes?
+        self.model.fit(self.X, self.Y)
+        print(f"kernel: {self.model.kernel_}")
 
         # If this is the only use of behaviors_map, then it should just be a np.array.
         # mean, variance = m.predict(behaviors_map)
 
         # But I need to find a consistent way of adding them here.
-        self.update_real_and_variance_maps()
+        self.update_real_and_sigma_maps()
         # print(f"New real map: {real_map}.")
 
         # Saving the update for visualization

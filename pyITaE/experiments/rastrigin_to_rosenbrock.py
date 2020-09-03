@@ -9,7 +9,7 @@ import random
 import matplotlib.pyplot as plt
 import glob
 
-from pyITaE.itae_take_2 import itae
+from pyITaE.itae import ITAE
 from pyITaE.visualize_updates import plot_updates
 from pymelites.map_elites import MAP_Elites
 
@@ -57,7 +57,7 @@ map_elites = MAP_Elites(
 )
 
 map_elites.create_cells(
-    partition=[(-2*np.pi, 2*np.pi, 75), (-2*np.pi, 2*np.pi, 75)],
+    partition={"f1": (-2*np.pi, 2*np.pi, 75), "f2": (-2*np.pi, 2*np.pi, 75)},
     amount_of_elites=3
 )
 
@@ -73,7 +73,8 @@ def deploy(x):
     return -performance, x[:2]
 
 try:
-    itae("./generation_02499.json", deploy)
+    I = ITAE("./generation_02499.json", deploy)
+    I.run()
 except KeyboardInterrupt:
     pass
 
