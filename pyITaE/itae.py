@@ -234,8 +234,14 @@ class ITAE:
             print(f"Its performance in the prior: {self.perf_map[next_centroid]}")
             return self.get_first_centroid()
         
+        if self.retest:
+            centroids = self.real_map.keys()
+        else:
+            centroids = set(self.real_map.keys()) - set(self.tested_centroids.keys())
+            centroids = list(centroids)
+
         next_centroid, best_bound = None, -np.Inf
-        for centroid in self.real_map:
+        for centroid in centroids:
             bound = self.real_map[centroid] + self.kappa * self.sigma_map[centroid]
             bound = self._objective(bound)
             if bound > best_bound:
@@ -253,19 +259,6 @@ class ITAE:
         # has been tested in the past.
         next_centroid = self.acquisition()
         next_controller = self.controllers[next_centroid]
-
-        if next_centroid in self.tested_centroids:
-            if not self.retest:
-                print("I have seen this controller before and I'm not retesting it. I'm assuming it will have the same real performance.")
-                print(f"Using previous behavior: {self.behaviors_map[next_centroid]}")
-                print(f"Using previous recorded performance: {self.recorded_perfs[next_centroid]}")
-                to_append_to_X = self.recorded_behaviors[next_centroid]
-                almost_to_append_to_Y = self.recorded_perfs[next_centroid]
-                dimension = len(to_append_to_X)
-                metadata = None
-
-            if self.retest:
-                print("I have seen this controller before, and I'm retesting it either way.")
 
         if to_append_to_X is None:
             print(f"Deploying the controller {next_controller}")
