@@ -39,7 +39,7 @@ itae = ITAE(
     goal=-100,
     distance_to_goal=5,
     comment="updating_rastrigin",
-    max_iterations=100,
+    max_iterations=10,
     retest=False
 )
 

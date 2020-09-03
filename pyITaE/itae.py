@@ -1,12 +1,11 @@
 import json
 import numpy as np
-import GPy
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 from sklearn.gaussian_process.kernels import Matern
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt 
 from mpl_toolkits.mplot3d import Axes3D
 
 def to_json_writable(dict_):
@@ -212,7 +211,8 @@ class ITAE:
 
         behaviors = np.array(behaviors)
         mean, sigma = self.model.predict(behaviors, return_std=True)
-        real_values = mean.T[0] + np.array(map_performances)
+        print(f"mean: {mean}")
+        real_values = mean.T + np.array(map_performances)
         sigma_values = sigma
 
         # Updating the real and variance maps.
@@ -317,7 +317,6 @@ class ITAE:
 
         # But I need to find a consistent way of adding them here.
         self.update_real_and_sigma_maps()
-        # print(f"New real map: {real_map}.")
 
         # Saving the update for visualization
         self.update_generation()

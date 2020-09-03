@@ -3,6 +3,7 @@
 # Outputs
 pyITaE/experiments/*.json
 pyITaE/experiments/*.jpg
+debugging_*.ipynb
 
 # OSX stuff
 .DS_Store
