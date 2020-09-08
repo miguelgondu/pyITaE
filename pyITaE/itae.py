@@ -211,15 +211,15 @@ class ITAE:
 
         behaviors = np.array(behaviors)
         mean, sigma = self.model.predict(behaviors, return_std=True)
-        print(f"mean: {mean}")
+        # print(f"mean: {mean}")
         real_values = mean.T + np.array(map_performances)
         sigma_values = sigma
 
         # Updating the real and variance maps.
         real_map = {}
         sigma_map = {}
-        print(f"real_values: {real_values}")
-        print(f"sigma_values: {sigma_values}")
+        # print(f"real_values: {real_values}")
+        # print(f"sigma_values: {sigma_values}")
         for i, centroid in enumerate(centroids):
             real_map[centroid] = real_values[i]
             sigma_map[centroid] = sigma_values[i]
