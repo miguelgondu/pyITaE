@@ -5,20 +5,32 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 from sklearn.gaussian_process.kernels import Matern
 from collections import defaultdict
 
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+
 
 def to_json_writable(dict_):
     """
     TODO: embetter this function
     """
-    new_dict = {
-        str(k): v for k, v in dict_.items()
-    }
+    new_dict = {str(k): v for k, v in dict_.items()}
     return new_dict
 
+
 class ITAE:
-    def __init__(self, path, deploy, max_iterations=100, kernel=None, retest=True, goal=None, distance_to_goal=None, comment="", path_to_updates=".", performance_bound=None):
+    def __init__(
+        self,
+        path,
+        deploy,
+        max_iterations=100,
+        kernel=None,
+        retest=True,
+        goal=None,
+        distance_to_goal=None,
+        comment="",
+        path_to_updates=".",
+        performance_bound=None,
+    ):
         """
         ITAE class: an object that runs the Intelligent Trial and Error
         algorithm, maintaining the results of the deployment and the current
@@ -26,7 +38,7 @@ class ITAE:
 
         It takes:
             path (str): a path to the prior json file outputted by pymelites.
-            deploy (f): a deploy function that takes a genotype (or controller) and 
+            deploy (f): a deploy function that takes a genotype (or controller) and
                     returns a tuple (performance, behavior). If you're familiar
                     with pymelites, think of the "simulate" function in the
                     MAP-Elites object.
@@ -58,19 +70,21 @@ class ITAE:
             """
             Default kernel: Matern 5/2 plus diagonal noise.
             """
-            kernel = 1 * Matern(nu=5/2) + WhiteKernel(noise_level=np.log(2))
+            kernel = 1 * Matern(nu=5 / 2) + WhiteKernel(noise_level=np.log(2))
 
         self.kernel = kernel
 
         # For bent acquisitions
         if goal is not None:
             assert isinstance(goal, (float, int)), "goal should be a float or int."
-            assert isinstance(distance_to_goal, (float, int)), "if you specified goal, you need to specify distance to goal for the stopping condition"
+            assert isinstance(
+                distance_to_goal, (float, int)
+            ), "if you specified goal, you need to specify distance to goal for the stopping condition"
         self.goal = goal
         self.distance_to_goal = distance_to_goal
 
-        self.alpha = 0.85 # percentage of performance that we're happy with.
-        self.kappa = 0.03 # UCB constant.
+        self.alpha = 0.85  # percentage of performance that we're happy with.
+        self.kappa = 0.03  # UCB constant.
 
         self.perf_map = None
         self.behaviors_map = None
@@ -99,7 +113,7 @@ class ITAE:
         then it is performance (and we'll return the identity
         function), but if self.goal is a numerical value, we
         return
-        
+
             - (r - self.goal) ** 2
 
         This way, we can optimize for self.goal instead of
@@ -108,7 +122,7 @@ class ITAE:
         if self.goal is None:
             return r
         else:
-            return - (r - self.goal) ** 2
+            return -((r - self.goal) ** 2)
 
     def update_generation(self):
         """
@@ -126,7 +140,9 @@ class ITAE:
             key = str(centroid).replace("(", "[").replace(")", "]")
             generation[key]["performance"] = real_perf
 
-        path_to_update = f"{self.path_to_updates}/update_{self.comment}_{self.update_it}.json"
+        path_to_update = (
+            f"{self.path_to_updates}/update_{self.comment}_{self.update_it}.json"
+        )
         with open(path_to_update, "w") as fp:
             json.dump(generation, fp)
 
@@ -152,7 +168,7 @@ class ITAE:
                 else:
                     self.behaviors_map[centroid] = doc["features"]
                 self.controllers[centroid] = doc["solution"]
-        
+
         self.real_map = self.perf_map.copy()
 
         self.tested_centroids = defaultdict(int)
@@ -183,7 +199,7 @@ class ITAE:
             algorithm implementation. We have found that this one
             only works when the prior maps are very illuminated.
             """
-            bound = self.alpha*max(self.real_map.values())
+            bound = self.alpha * max(self.real_map.values())
             max_perf = max(self.recorded_perfs.values())
             return max_perf > bound
 
@@ -233,7 +249,7 @@ class ITAE:
             print(f"First centroid to test: {next_centroid}")
             print(f"Its performance in the prior: {self.perf_map[next_centroid]}")
             return self.get_first_centroid()
-        
+
         if self.retest:
             centroids = self.real_map.keys()
         else:
@@ -268,7 +284,12 @@ class ITAE:
                 metadata = None
             elif len(tuple_) == 3:
                 performance, behavior, metadata = tuple_
-            # TODO: I need to change the behavior here
+
+            # If performance is None, we skip the step.
+            if performance is None:
+                print("Performance was None, skipping this step")
+                return
+
             if isinstance(behavior, dict):
                 keys = list(behavior.keys())
                 keys.sort()
@@ -327,11 +348,10 @@ class ITAE:
                     "best_performance": float(self.best_performance),
                     "update": self.update_it,
                     "goal": self.goal,
-                    "metadata": metadata
+                    "metadata": metadata,
                 },
-                fp
+                fp,
             )
-
 
     def run(self):
         self.load_map()
@@ -345,7 +365,7 @@ class ITAE:
         self.update_it = 0
         while True:
             # Run a step of the updating
-            print("-"*80)
+            print("-" * 80)
             print(" " * 30 + f"Update {self.update_it}" + " " * 30)
             self.step()
 
@@ -362,7 +382,9 @@ class ITAE:
             # print("-"*80 + "\n")
 
         # TODO: return the new best performing controller.
-        print(f"Here's the next best performing controller: {self.best_controller}, Here's the best performance: {self.best_performance}")
+        print(
+            f"Here's the next best performing controller: {self.best_controller}, Here's the best performance: {self.best_performance}"
+        )
 
     def plot_update_surface(self, xlims, ylims):
         """
@@ -385,5 +407,5 @@ class ITAE:
                 Z[i, j] = mean
 
         fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
+        ax = fig.add_subplot(111, projection="3d")
         ax.plot_surface(domain_X, domain_Y, Z)
